@@ -1,0 +1,389 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Advanced Project Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.development.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.development.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.22.9/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fadeIn {
+      animation: fadeIn 1s ease-in-out;
+    }
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+      100% { transform: scale(1); }
+    }
+    .animate-pulse {
+      animation: pulse 2s infinite;
+    }
+    @keyframes glow {
+      0% { box-shadow: 0 0 5px rgba(59, 130, 246, 0.5); }
+      50% { box-shadow: 0 0 15px rgba(59, 130, 246, 0.8); }
+      100% { box-shadow: 0 0 5px rgba(59, 130, 246, 0.5); }
+    }
+    .animate-glow {
+      animation: glow 3s infinite;
+    }
+    #map { height: 400px; }
+    .chart-container { position: relative; }
+    .custom-tooltip { position: absolute; background: rgba(0, 0, 0, 0.8); color: white; padding: 8px; border-radius: 4px; display: none; pointer-events: none; }
+  </style>
+</head>
+<body class="bg-gray-900 text-white font-sans">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    const Dashboard = () => {
+      const [stats, setStats] = useState({
+        users: 1500,
+        revenue: 62000,
+        tasks: 450,
+        progress: 82,
+        activeProjects: 12
+      });
+      const [filter, setFilter] = useState('all');
+      const [search, setSearch] = useState('');
+      const pieChartRef = useRef(null);
+      const barChartRef = useRef(null);
+      const mapRef = useRef(null);
+
+      useEffect(() => {
+        const interval = setInterval(() => {
+          setStats({
+            users: Math.floor(Math.random() * 1200) + 1000,
+            revenue: Math.floor(Math.random() * 25000) + 55000,
+            tasks: Math.floor(Math.random() * 150) + 400,
+            progress: Math.floor(Math.random() * 25) + 70,
+            activeProjects: Math.floor(Math.random() * 10) + 10
+          });
+        }, 3000);
+        return () => clearInterval(interval);
+      }, []);
+
+      useEffect(() => {
+        const pieData = {
+          all: [25, 35, 25, 15],
+          design: [70, 10, 10, 10],
+          dev: [10, 70, 10, 10]
+        };
+        const pieCtx = document.getElementById('pieChart').getContext('2d');
+        pieChartRef.current = new Chart(pieCtx, {
+          type: 'pie',
+          data: {
+            labels: ['Design', 'Development', 'Testing', 'Deployment'],
+            datasets: [{
+              data: pieData[filter],
+              backgroundColor: ['#3B82F6', '#10B981', '#F59E0B', '#EF4444'],
+              borderWidth: 1,
+              hoverOffset: 10
+            }]
+          },
+          options: {
+            responsive: true,
+            plugins: {
+              legend: { position: 'top', labels: { color: 'white' } },
+              title: { display: true, text: 'Task Distribution', color: 'white' },
+              tooltip: {
+                enabled: false,
+                external: function(context) {
+                  let tooltipEl = document.getElementById('pie-tooltip');
+                  if (!tooltipEl) {
+                    tooltipEl = document.createElement('div');
+                    tooltipEl.id = 'pie-tooltip';
+                    tooltipEl.className = 'custom-tooltip';
+                    document.body.appendChild(tooltipEl);
+                  }
+                  const tooltipModel = context.tooltip;
+                  if (tooltipModel.opacity === 0) {
+                    tooltipEl.style.display = 'none';
+                    return;
+                  }
+                  const label = tooltipModel.dataPoints[0].label;
+                  const value = tooltipModel.dataPoints[0].raw;
+                  tooltipEl.innerHTML = `<b>${label}</b>: ${value}%`;
+                  tooltipEl.style.display = 'block';
+                  tooltipEl.style.left = tooltipModel.caretX + 'px';
+                  tooltipEl.style.top = tooltipModel.caretY + 'px';
+                }
+              }
+            },
+            onClick: (event, elements) => {
+              if (elements.length) {
+                const index = elements[0].index;
+                const label = pieChartRef.current.data.labels[index];
+                alert(`Focus on ${label}: ${pieChartRef.current.data.datasets[0].data[index]}% of tasks`);
+              }
+            }
+          }
+        });
+
+        const barData = {
+          all: [12, 19, 15, 22],
+          q1: [12, 5, 3, 4],
+          q2: [19, 8, 6, 5]
+        };
+        const barCtx = document.getElementById('barChart').getContext('2d');
+        barChartRef.current = new Chart(barCtx, {
+          type: 'bar',
+          data: {
+            labels: ['Q1', 'Q2', 'Q3', 'Q4'],
+            datasets: [{
+              label: 'Milestones Completed',
+              data: barData[filter],
+              backgroundColor: 'rgba(59, 130, 246, 0.7)',
+              borderColor: '#3B82F6',
+              borderWidth: 1
+            }]
+          },
+          options: {
+            responsive: true,
+            scales: {
+              y: { beginAtZero: true, title: { display: true, text: 'Milestones', color: 'white' }, ticks: { color: 'white' } },
+              x: { ticks: { color: 'white' } }
+            },
+            plugins: {
+              title: { display: true, text: 'Quarterly Milestones', color: 'white' },
+              tooltip: {
+                enabled: false,
+                external: function(context) {
+                  let tooltipEl = document.getElementById('bar-tooltip');
+                  if (!tooltipEl) {
+                    tooltipEl = document.createElement('div');
+                    tooltipEl.id = 'bar-tooltip';
+                    tooltipEl.className = 'custom-tooltip';
+                    document.body.appendChild(tooltipEl);
+                  }
+                  const tooltipModel = context.tooltip;
+                  if (tooltipModel.opacity === 0) {
+                    tooltipEl.style.display = 'none';
+                    return;
+                  }
+                  const label = tooltipModel.dataPoints[0].label;
+                  const value = tooltipModel.dataPoints[0].raw;
+                  tooltipEl.innerHTML = `<b>${label}</b>: ${value} milestones`;
+                  tooltipEl.style.display = 'block';
+                  tooltipEl.style.left = tooltipModel.caretX + 'px';
+                  tooltipEl.style.top = tooltipModel.caretY + 'px';
+                }
+              }
+            },
+            onClick: (event, elements) => {
+              if (elements.length) {
+                const index = elements[0].index;
+                const label = barChartRef.current.data.labels[index];
+                alert(`Review ${label}: ${barChartRef.current.data.datasets[0].data[index]} milestones completed`);
+              }
+            }
+          }
+        });
+
+        const map = L.map('map').setView([20, 0], 2);
+        mapRef.current = map;
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        }).addTo(map);
+
+        const locations = [
+          { lat: 40.7128, lng: -74.0060, name: 'New York', users: 350, growth: 5 },
+          { lat: 51.5074, lng: -0.1278, name: 'London', users: 280, growth: 3 },
+          { lat: 35.6762, lng: 139.6503, name: 'Tokyo', users: 210, growth: 7 },
+          { lat: -33.8688, lng: 151.2093, name: 'Sydney', users: 180, growth: 4 }
+        ];
+
+        locations.forEach(loc => {
+          const marker = L.circleMarker([loc.lat, loc.lng], {
+            radius: 10 + loc.growth,
+            color: '#3B82F6',
+            fillColor: '#10B981',
+            fillOpacity: 0.7
+          })
+            .addTo(map)
+            .bindPopup(`<b>${loc.name}</b><br>Users: ${loc.users}<br>Growth: ${loc.growth}%`)
+            .on('mouseover', function() { this.openPopup(); })
+            .on('mouseout', function() { this.closePopup(); })
+            .on('click', function() {
+              map.flyTo([loc.lat, loc.lng], 6, { duration: 1.5 });
+              alert(`Zoomed to ${loc.name}: ${loc.users} users, ${loc.growth}% growth`);
+            });
+        });
+
+        return () => {
+          pieChartRef.current.destroy();
+          barChartRef.current.destroy();
+          mapRef.current.remove();
+        };
+      }, [filter]);
+
+      const handleFilterChange = (newFilter) => {
+        setFilter(newFilter);
+        pieChartRef.current.data.datasets[0].data = {
+          all: [25, 35, 25, 15],
+          design: [70, 10, 10, 10],
+          dev: [10, 70, 10, 10]
+        }[newFilter];
+        barChartRef.current.data.datasets[0].data = {
+          all: [12, 19, 15, 22],
+          q1: [12, 5, 3, 4],
+          q2: [19, 8, 6, 5]
+        }[newFilter];
+        pieChartRef.current.update();
+        barChartRef.current.update();
+      };
+
+      const handleSearch = () => {
+        if (search.trim() === '') return;
+        const locations = ['New York', 'London', 'Tokyo', 'Sydney'];
+        const match = locations.find(loc => loc.toLowerCase() === search.toLowerCase());
+        if (match) {
+          const coords = {
+            'New York': [40.7128, -74.0060],
+            'London': [51.5074, -0.1278],
+            'Tokyo': [35.6762, 139.6503],
+            'Sydney': [-33.8688, 151.2093]
+          };
+          mapRef.current.flyTo(coords[match], 6, { duration: 1.5 });
+          alert(`Zoomed to ${match} based on search!`);
+        } else {
+          alert(`No match found for "${search}"`);
+        }
+        setSearch('');
+      };
+
+      return (
+        <div className="min-h-screen p-6">
+          <div className="w-full mb-6 animate-fadeIn">
+            <div className="flex gap-4">
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search location (e.g., New York)"
+                className="w-full px-4 py-2 rounded-lg bg-gray-800 text-white border border-gray-600 focus:outline-none focus:border-blue-500"
+              />
+              <button
+                onClick={handleSearch}
+                className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-500 transition"
+              >
+                Search
+              </button>
+            </div>
+          </div>
+
+          <div className="flex justify-center gap-4 mb-6">
+            <button
+              className={`px-4 py-2 rounded-lg text-white ${filter === 'all' ? 'bg-blue-600' : 'bg-gray-700'} hover:bg-blue-500 transition`}
+              onClick={() => handleFilterChange('all')}
+            >
+              All
+            </button>
+            <button
+              className={`px-4 py-2 rounded-lg text-white ${filter === 'design' ? 'bg-blue-600' : 'bg-gray-700'} hover:bg-blue-500 transition`}
+              onClick={() => handleFilterChange('design')}
+            >
+              Design Focus
+            </button>
+            <button
+              className={`px-4 py-2 rounded-lg text-white ${filter === 'dev' ? 'bg-blue-600' : 'bg-gray-700'} hover:bg-blue-500 transition`}
+              onClick={() => handleFilterChange('dev')}
+            >
+              Dev Focus
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-6">
+            <div className="bg-gray-800 p-6 rounded-lg shadow-md animate-fadeIn animate-pulse">
+              <h2 className="text-xl font-semibold text-gray-300">Users</h2>
+              <p className="text-3xl font-bold text-blue-400">{stats.users}</p>
+            </div>
+            <div className="bg-gray-800 p-6 rounded-lg shadow-md animate-fadeIn animate-pulse" style={{ animationDelay: '0.2s' }}>
+              <h2 className="text-xl font-semibold text-gray-300">Revenue</h2>
+              <p className="text-3xl font-bold text-green-400">${stats.revenue}</p>
+            </div>
+            <div className="bg-gray-800 p-6 rounded-lg shadow-md animate-fadeIn animate-pulse" style={{ animationDelay: '0.4s' }}>
+              <h2 className="text-xl font-semibold text-gray-300">Tasks</h2>
+              <p className="text-3xl font-bold text-yellow-400">{stats.tasks}</p>
+            </div>
+            <div className="bg-gray-800 p-6 rounded-lg shadow-md animate-fadeIn animate-pulse" style={{ animationDelay: '0.6s' }}>
+              <h2 className="text-xl font-semibold text-gray-300">Progress</h2>
+              <p className="text-3xl font-bold text-red-400">{stats.progress}%</p>
+            </div>
+            <div className="bg-gray-800 p-6 rounded-lg shadow-md animate-fadeIn animate-pulse" style={{ animationDelay: '0.8s' }}>
+              <h2 className="text-xl font-semibold text-gray-300">Active Projects</h2>
+              <p className="text-3xl font-bold text-purple-400">{stats.activeProjects}</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <div className="bg-gray-800 p-6 rounded-lg shadow-md animate-fadeIn">
+              <canvas id="pieChart" height="200"></canvas>
+            </div>
+            <div className="bg-gray-800 p-6 rounded-lg shadow-md animate-fadeIn" style={{ animationDelay: '0.2s' }}>
+              <canvas id="barChart" height="200"></canvas>
+            </div>
+          </div>
+
+          <div className="bg-gray-800 p-6 rounded-lg shadow-md animate-fadeIn" style={{ animationDelay: '0.4s' }}>
+            <h2 className="text-xl font-semibold text-gray-300 mb-4">Global User Distribution</h2>
+            <div id="map"></div>
+          </div>
+        </div>
+      );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<Dashboard />);
+  </script>
+</body>
+</html>
